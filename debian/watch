@@ -1,0 +1,3 @@
+version=3
+opts=pgpsigurlmangle=s/$/.asc/ \
+  http://i3wm.org/i3lock /i3lock/i3lock-(.+)\.tar\.bz2
