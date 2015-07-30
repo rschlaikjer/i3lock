@@ -91,154 +91,59 @@ static double scaling_factor(void) {
     return (dpi / 96.0);
 }
 
-void draw_indicator(cairo_t *ctx){
+void draw_indicator(cairo_t *ctx, int screen_width, int screen_height){
     cairo_scale(ctx, scaling_factor(), scaling_factor());
-    /* Draw a (centered) circle with transparent background. */
-    cairo_set_line_width(ctx, 10.0);
-    cairo_arc(ctx,
-              BUTTON_CENTER /* x */,
-              BUTTON_CENTER /* y */,
-              BUTTON_RADIUS /* radius */,
-              0 /* start */,
-              2 * M_PI /* end */);
+    if (input_position == 0) {
+        return;
+    }
 
-    /* Use the appropriate color for the different PAM states
-     * (currently verifying, wrong password, or default) */
+    /* Calculate the filler text & size */
+    char filler[64] = { 0 };
+    for (int i=0; i < input_position && i < 64; i++){
+        filler[i] = '*';
+    }
+    cairo_text_extents_t extents;
+    cairo_set_font_size(ctx, 40);
+    cairo_text_extents(ctx, filler, &extents);
+    float text_x, text_y;
+    text_x = screen_width - (extents.width / 2);
+    text_y = screen_height - (extents.height / 2);
+
+    /* Draw a bordered box. If verification isn't instant it's wrong, so always
+     * set verify to red. Looks better in practice.
+     */
     switch (pam_state) {
         case STATE_PAM_VERIFY:
-            cairo_set_source_rgba(ctx, 0, 114.0 / 255, 255.0 / 255, 0.75);
-            break;
-        case STATE_PAM_WRONG:
-            cairo_set_source_rgba(ctx, 250.0 / 255, 0, 0, 0.75);
+            cairo_set_source_rgba(ctx, 215.0 / 255.0, 3.0 / 255.0, 1.0 / 255.0, 1);
             break;
         default:
-            cairo_set_source_rgba(ctx, 0, 0, 0, 0.75);
+            cairo_set_source_rgba(ctx, 215.0 / 255.0, 158.0 / 255.0, 1.0 / 255.0, 1);
             break;
     }
-    cairo_fill_preserve(ctx);
+    // Border
+    cairo_set_line_width(ctx, 0);
+    cairo_rectangle(ctx,
+        text_x - 20, text_y - (extents.height ) - 20,
+        extents.width + 40, extents.height + 20);
+    cairo_stroke_preserve(ctx);
+    cairo_fill(ctx);
+    cairo_close_path(ctx);
 
-    switch (pam_state) {
-        case STATE_PAM_VERIFY:
-            cairo_set_source_rgb(ctx, 51.0 / 255, 0, 250.0 / 255);
-            break;
-        case STATE_PAM_WRONG:
-            cairo_set_source_rgb(ctx, 125.0 / 255, 51.0 / 255, 0);
-            break;
-        case STATE_PAM_IDLE:
-            cairo_set_source_rgb(ctx, 51.0 / 255, 125.0 / 255, 0);
-            break;
-    }
-    cairo_stroke(ctx);
+    // Inner box
+    cairo_set_source_rgba(ctx, 0.0, 0.0, 0.0, 1);
+    cairo_rectangle(ctx,
+        text_x - 18, text_y - (extents.height ) - 18,
+        extents.width + 36, extents.height + 16);
+    cairo_stroke_preserve(ctx);
+    cairo_fill(ctx);
+    cairo_close_path(ctx);
 
-    /* Draw an inner seperator line. */
-    cairo_set_source_rgb(ctx, 0, 0, 0);
-    cairo_set_line_width(ctx, 2.0);
-    cairo_arc(ctx,
-              BUTTON_CENTER /* x */,
-              BUTTON_CENTER /* y */,
-              BUTTON_RADIUS - 5 /* radius */,
-              0,
-              2 * M_PI);
-    cairo_stroke(ctx);
+    /* Draw filler characters for the password */
+    cairo_set_source_rgba(ctx, 1.0, 1.0, 1.0, 1);
+    cairo_move_to(ctx, text_x, text_y);
+    cairo_show_text(ctx, filler);
+    cairo_close_path(ctx);
 
-    cairo_set_line_width(ctx, 10.0);
-
-    /* Display a (centered) text of the current PAM state. */
-    char *text = NULL;
-    /* We don't want to show more than a 3-digit number. */
-    char buf[4];
-
-    cairo_set_source_rgb(ctx, 0, 0, 0);
-    cairo_set_font_size(ctx, 28.0);
-    switch (pam_state) {
-        case STATE_PAM_VERIFY:
-            text = "verifying…";
-            break;
-        case STATE_PAM_WRONG:
-            text = "wrong!";
-            break;
-        default:
-            if (show_failed_attempts && failed_attempts > 0) {
-                if (failed_attempts > 999) {
-                    text = "> 999";
-                } else {
-                    snprintf(buf, sizeof(buf), "%d", failed_attempts);
-                    text = buf;
-                }
-                cairo_set_source_rgb(ctx, 1, 0, 0);
-                cairo_set_font_size(ctx, 32.0);
-            }
-            break;
-    }
-
-    if (text) {
-        cairo_text_extents_t extents;
-        double x, y;
-
-        cairo_text_extents(ctx, text, &extents);
-        x = BUTTON_CENTER - ((extents.width / 2) + extents.x_bearing);
-        y = BUTTON_CENTER - ((extents.height / 2) + extents.y_bearing);
-
-        cairo_move_to(ctx, x, y);
-        cairo_show_text(ctx, text);
-        cairo_close_path(ctx);
-    }
-
-    if (pam_state == STATE_PAM_WRONG && (modifier_string != NULL)) {
-        cairo_text_extents_t extents;
-        double x, y;
-
-        cairo_set_font_size(ctx, 14.0);
-
-        cairo_text_extents(ctx, modifier_string, &extents);
-        x = BUTTON_CENTER - ((extents.width / 2) + extents.x_bearing);
-        y = BUTTON_CENTER - ((extents.height / 2) + extents.y_bearing) + 28.0;
-
-        cairo_move_to(ctx, x, y);
-        cairo_show_text(ctx, modifier_string);
-        cairo_close_path(ctx);
-    }
-
-    /* After the user pressed any valid key or the backspace key, we
-     * highlight a random part of the unlock indicator to confirm this
-     * keypress. */
-    if (unlock_state == STATE_KEY_ACTIVE ||
-        unlock_state == STATE_BACKSPACE_ACTIVE) {
-        cairo_new_sub_path(ctx);
-        double highlight_start = (rand() % (int)(2 * M_PI * 100)) / 100.0;
-        cairo_arc(ctx,
-                  BUTTON_CENTER /* x */,
-                  BUTTON_CENTER /* y */,
-                  BUTTON_RADIUS /* radius */,
-                  highlight_start,
-                  highlight_start + (M_PI / 3.0));
-        if (unlock_state == STATE_KEY_ACTIVE) {
-            /* For normal keys, we use a lighter green. */
-            cairo_set_source_rgb(ctx, 51.0 / 255, 219.0 / 255, 0);
-        } else {
-            /* For backspace, we use red. */
-            cairo_set_source_rgb(ctx, 219.0 / 255, 51.0 / 255, 0);
-        }
-        cairo_stroke(ctx);
-
-        /* Draw two little separators for the highlighted part of the
-         * unlock indicator. */
-        cairo_set_source_rgb(ctx, 0, 0, 0);
-        cairo_arc(ctx,
-                  BUTTON_CENTER /* x */,
-                  BUTTON_CENTER /* y */,
-                  BUTTON_RADIUS /* radius */,
-                  highlight_start /* start */,
-                  highlight_start + (M_PI / 128.0) /* end */);
-        cairo_stroke(ctx);
-        cairo_arc(ctx,
-                  BUTTON_CENTER /* x */,
-                  BUTTON_CENTER /* y */,
-                  BUTTON_RADIUS /* radius */,
-                  highlight_start + (M_PI / 3.0) /* start */,
-                  (highlight_start + (M_PI / 3.0)) + (M_PI / 128.0) /* end */);
-        cairo_stroke(ctx);
-    }
 }
 
 /*
@@ -291,16 +196,17 @@ xcb_pixmap_t draw_image(uint32_t *resolution) {
     }
 
     if (unlock_state >= STATE_KEY_PRESSED && unlock_indicator) {
-        draw_indicator(ctx);
     }
+
     if (xr_screens > 0) {
         /* Composite the unlock indicator in the middle of each screen. */
         for (int screen = 0; screen < xr_screens; screen++) {
-            int x = (xr_resolutions[screen].x + ((xr_resolutions[screen].width / 2) - (button_diameter_physical / 2)));
-            int y = (xr_resolutions[screen].y + ((xr_resolutions[screen].height / 2) - (button_diameter_physical / 2)));
-            cairo_set_source_surface(xcb_ctx, output, x, y);
-            cairo_rectangle(xcb_ctx, x, y, button_diameter_physical, button_diameter_physical);
-            cairo_fill(xcb_ctx);
+            int x = (xr_resolutions[screen].x + (xr_resolutions[screen].width / 2));
+            int y = (xr_resolutions[screen].y + (xr_resolutions[screen].height / 2));
+            draw_indicator(xcb_ctx, x, y);
+            //cairo_set_source_surface(xcb_ctx, output, x, y);
+            //cairo_rectangle(xcb_ctx, x, y, button_diameter_physical, button_diameter_physical);
+            //cairo_fill(xcb_ctx);
         }
     } else {
         /* We have no information about the screen sizes/positions, so we just
