@@ -171,8 +171,25 @@ xcb_pixmap_t draw_image(uint32_t *resolution) {
 
     if (img) {
         if (!tile) {
-            cairo_set_source_surface(xcb_ctx, img, 0, 0);
-            cairo_paint(xcb_ctx);
+            if (xr_screens > 0) {
+                /* Composite in the middle of each screen. */
+                for (int screen = 0; screen < xr_screens; screen++) {
+                    int x = (xr_resolutions[screen].x + (xr_resolutions[screen].width / 2));
+                    int y = (xr_resolutions[screen].y + (xr_resolutions[screen].height / 2));
+                    x -= cairo_image_surface_get_width(img) / 2;
+                    y -= cairo_image_surface_get_height(img) / 2;
+                    cairo_set_source_surface(xcb_ctx, img, x, y);
+                    cairo_paint(xcb_ctx);
+                }
+            } else {
+                /* We have no information about the screen sizes/positions, so we just
+                 * place the unlock indicator in the middle of the X root window and
+                 * hope for the best. */
+                int x = (last_resolution[0] / 2) - (button_diameter_physical / 2);
+                int y = (last_resolution[1] / 2) - (button_diameter_physical / 2);
+                cairo_set_source_surface(xcb_ctx, img, x, y);
+                cairo_paint(xcb_ctx);
+            }
         } else {
             /* create a pattern and fill a rectangle as big as the screen */
             cairo_pattern_t *pattern;
